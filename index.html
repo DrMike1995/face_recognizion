@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FaceTracker — Realtids ansiktsdetektering</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green:  #00ff88;
+    --blue:   #00aaff;
+    --red:    #ff4455;
+    --yellow: #ffcc00;
+    --bg:     #080808;
+    --bg2:    #111111;
+    --bg3:    #181818;
+    --border: #1e1e1e;
+    --text:   #cccccc;
+    --dim:    #555555;
+    --mono:   'Share Tech Mono', monospace;
+    --sans:   'Syne', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    overflow-x: hidden;
+    cursor: crosshair;
+  }
+
+  /* ── Scanline overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Noise texture ── */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9998;
+    opacity: 0.4;
+  }
+
+  /* ── Nav ── */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 48px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,8,8,0.92);
+    backdrop-filter: blur(8px);
+  }
+
+  .nav-logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 18px;
+    color: var(--green);
+    letter-spacing: -0.5px;
+  }
+
+  .nav-logo span { color: var(--dim); font-weight: 400; }
+
+  nav ul {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+
+  nav a {
+    color: var(--dim);
+    text-decoration: none;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+
+  nav a:hover { color: var(--green); }
+
+  /* ── Hero ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 120px 24px 80px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Grid background */
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    animation: gridShift 20s linear infinite;
+  }
+
+  @keyframes gridShift {
+    0%   { background-position: 0 0; }
+    100% { background-position: 48px 48px; }
+  }
+
+  .hero-tag {
+    display: inline-block;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    margin-bottom: 32px;
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero h1 {
+    font-family: var(--sans);
+    font-size: clamp(48px, 8vw, 96px);
+    font-weight: 800;
+    line-height: 0.95;
+    letter-spacing: -3px;
+    color: #fff;
+    margin-bottom: 8px;
+    animation: fadeUp 0.6s ease 0.1s both;
+  }
+
+  .hero h1 em {
+    font-style: normal;
+    color: var(--green);
+    position: relative;
+  }
+
+  .hero h1 em::after {
+    content: '';
+    position: absolute;
+    bottom: 4px;
+    left: 0; right: 0;
+    height: 3px;
+    background: var(--green);
+    transform: scaleX(0);
+    transform-origin: left;
+    animation: underlineIn 0.5s ease 0.7s forwards;
+  }
+
+  @keyframes underlineIn { to { transform: scaleX(1); } }
+
+  .hero-sub {
+    font-size: 15px;
+    color: var(--dim);
+    max-width: 520px;
+    line-height: 1.7;
+    margin: 24px auto 48px;
+    animation: fadeUp 0.6s ease 0.2s both;
+  }
+
+  .hero-buttons {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+    animation: fadeUp 0.6s ease 0.3s both;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 28px;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: currentColor;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .btn:hover::before { opacity: 0.08; }
+
+  .btn-primary {
+    background: var(--green);
+    color: #000;
+    font-weight: 700;
+  }
+
+  .btn-primary:hover { box-shadow: 0 0 24px rgba(0,255,136,0.3); }
+
+  .btn-secondary {
+    border-color: var(--border);
+    color: var(--text);
+    background: var(--bg2);
+  }
+
+  .btn-secondary:hover { border-color: var(--dim); }
+
+  /* ── Terminal mockup ── */
+  .terminal-wrap {
+    margin: 80px auto 0;
+    max-width: 700px;
+    width: 100%;
+    animation: fadeUp 0.6s ease 0.4s both;
+  }
+
+  .terminal {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-r { background: #ff5f57; }
+  .dot-y { background: #ffbd2e; }
+  .dot-g { background: #28c840; }
+
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .terminal-body {
+    padding: 20px 24px;
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .t-dim    { color: var(--dim); }
+  .t-green  { color: var(--green); }
+  .t-blue   { color: var(--blue); }
+  .t-yellow { color: var(--yellow); }
+  .t-white  { color: #fff; }
+
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 14px;
+    background: var(--green);
+    animation: blink 1s step-end infinite;
+    vertical-align: middle;
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── Section base ── */
+  section {
+    padding: 100px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-family: var(--sans);
+    font-size: clamp(32px, 4vw, 52px);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    margin-bottom: 20px;
+  }
+
+  .section-desc {
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 1.8;
+    max-width: 560px;
+  }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 0;
+  }
+
+  /* ── Features grid ── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-top: 60px;
+  }
+
+  .feature {
+    background: var(--bg);
+    padding: 36px 32px;
+    transition: background 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .feature::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent, var(--green));
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.3s;
+  }
+
+  .feature:hover { background: var(--bg2); }
+  .feature:hover::before { transform: scaleX(1); }
+
+  .feature-icon {
+    font-size: 28px;
+    margin-bottom: 16px;
+  }
+
+  .feature h3 {
+    font-family: var(--sans);
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 10px;
+  }
+
+  .feature p {
+    font-size: 13px;
+    color: var(--dim);
+    line-height: 1.7;
+  }
+
+  /* ── How it works ── */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 32px;
+    margin-top: 60px;
+  }
+
+  .step {
+    position: relative;
+    padding-left: 24px;
+    border-left: 1px solid var(--border);
+  }
+
+  .step-num {
+    font-size: 11px;
+    color: var(--green);
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+
+  .step h3 {
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+
+  .step p {
+    font-size: 12px;
+    color: var(--dim);
+    line-height: 1.7;
+  }
+
+  /* ── Install block ── */
+  .install-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 60px;
+  }
+
+  @media (max-width: 700px) {
+    .install-grid { grid-template-columns: 1fr; }
+    nav ul { display: none; }
+    nav { padding: 16px 24px; }
+  }
+
+  .code-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 24px;
+  }
+
+  .code-block-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-block code {
+    display: block;
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .code-block .cmd::before {
+    content: '$ ';
+    color: var(--green);
+  }
+
+  .code-block .comment {
+    color: var(--dim);
+    font-size: 12px;
+  }
+
+  /* ── Privacy banner ── */
+  .privacy {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--green);
+    padding: 28px 32px;
+    margin-top: 60px;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+  }
+
+  .privacy-icon { font-size: 24px; flex-shrink: 0; }
+
+  .privacy h3 {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+
+  .privacy p {
+    font-size: 13px;
+    color: var(--dim);
+    line-height: 1.7;
+  }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: gap;
+  }
+
+  .footer-logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    color: var(--green);
+    font-size: 15px;
+  }
+
+  .footer-note {
+    font-size: 12px;
+    color: var(--dim);
+  }
+
+  /* ── Animations ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Face detection demo SVG ── */
+  .demo-svg-wrap {
+    max-width: 600px;
+    margin: 60px auto 0;
+    position: relative;
+  }
+
+  .face-box {
+    stroke-dasharray: 400;
+    stroke-dashoffset: 400;
+    animation: drawBox 1s ease 1s forwards;
+  }
+
+  @keyframes drawBox {
+    to { stroke-dashoffset: 0; }
+  }
+
+  .scan-line {
+    animation: scan 2.5s ease-in-out infinite;
+  }
+
+  @keyframes scan {
+    0%   { transform: translateY(0px); opacity: 1; }
+    80%  { transform: translateY(220px); opacity: 1; }
+    100% { transform: translateY(220px); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-logo">Face<span>Tracker</span></div>
+  <ul>
+    <li><a href="#features">Funktioner</a></li>
+    <li><a href="#how">Hur det fungerar</a></li>
+    <li><a href="#install">Installation</a></li>
+    <li><a href="https://github.com" target="_blank">GitHub ↗</a></li>
+  </ul>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-tag">// Skolprojekt — Python + OpenCV</div>
+  <h1>Realtids<br><em>Face Tracker</em></h1>
+  <p class="hero-sub">
+    Detekterar, trackar och identifierar ansikten via webbkamera.
+    Flera ansikten samtidigt. Automatiska ID:n. Lokalt bildgalleri.
+  </p>
+  <div class="hero-buttons">
+    <a href="https://github.com" class="btn btn-primary" target="_blank">
+      ↓ Ladda ner från GitHub
+    </a>
+    <a href="#how" class="btn btn-secondary">
+      → Hur det fungerar
+    </a>
+  </div>
+
+  <!-- Terminal mockup -->
+  <div class="terminal-wrap">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot dot-r"></span>
+        <span class="dot dot-y"></span>
+        <span class="dot dot-g"></span>
+        <span class="terminal-title">bash — facetracker</span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="t-dim">~</span> <span class="t-green">git clone</span> <span class="t-white">https://github.com/user/facetracker</span></div>
+        <div><span class="t-dim">~</span> <span class="t-green">cd</span> <span class="t-white">facetracker</span></div>
+        <div><span class="t-dim">~</span> <span class="t-green">pip install</span> <span class="t-yellow">-r requirements.txt</span></div>
+        <div><span class="t-dim">✓ </span><span class="t-green">face_recognition</span><span class="t-dim"> installed</span></div>
+        <div><span class="t-dim">✓ </span><span class="t-blue">opencv-python</span><span class="t-dim"> installed</span></div>
+        <div><span class="t-dim">~</span> <span class="t-green">python</span> <span class="t-white">src/main.py</span></div>
+        <div><span class="t-dim">[FaceTracker] </span><span class="t-green">Kamera aktiv — detekterar ansikten...</span> <span class="cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- Features -->
+<section id="features">
+  <div class="section-label">// 01 — Funktioner</div>
+  <h2 class="section-title">Allt du behöver<br>i ett program</h2>
+  <p class="section-desc">Byggt med Python, OpenCV och dlib. Körs helt lokalt — ingen molntjänst, ingen nätverksanslutning krävs.</p>
+
+  <div class="features-grid">
+    <div class="feature" style="--accent: var(--green)">
+      <div class="feature-icon">🔲</div>
+      <h3>Realtidsdetektering</h3>
+      <p>HOG-baserad ansiktsdetektor från dlib ritar färgade boxar runt varje ansikte i kameraflödet med ~30 fps.</p>
+    </div>
+    <div class="feature" style="--accent: var(--blue)">
+      <div class="feature-icon">👤</div>
+      <h3>Automatiska ID:n</h3>
+      <p>Varje ny unik person får automatiskt ett ID — Person 1, Person 2 osv. — baserat på 128-dimensionella face encodings.</p>
+    </div>
+    <div class="feature" style="--accent: var(--yellow)">
+      <div class="feature-icon">👥</div>
+      <h3>Multi-face tracking</h3>
+      <p>Hanterar flera ansikten i bild samtidigt. Varje person får sin egen unika färg och spåras oberoende av de andra.</p>
+    </div>
+    <div class="feature" style="--accent: var(--red)">
+      <div class="feature-icon">📸</div>
+      <h3>Bildgalleri</h3>
+      <p>Bilder sparas automatiskt per person. Klicka på en person i galleriet för att se alla sparade bilder i ett popup-fönster.</p>
+    </div>
+    <div class="feature" style="--accent: var(--green)">
+      <div class="feature-icon">🔒</div>
+      <h3>100% lokalt</h3>
+      <p>All data stannar på din dator. Inga bilder eller encodings skickas till internet. Mappen captured_faces/ ignoreras av git.</p>
+    </div>
+    <div class="feature" style="--accent: var(--blue)">
+      <div class="feature-icon">⚙️</div>
+      <h3>Konfigurerbart</h3>
+      <p>Justera tolerans, skalfaktor, capture-intervall och mer direkt i toppen av main.py utan att ändra logiken.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- How it works -->
+<section id="how">
+  <div class="section-label">// 02 — Teknisk översikt</div>
+  <h2 class="section-title">Hur det fungerar</h2>
+  <p class="section-desc">Pipeline från kameraframe till sparad bild i fyra steg.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01 —</div>
+      <h3>Detektering</h3>
+      <p>Varje frame skalas ner och skickas genom dlibs HOG-detektor som returnerar bounding box-koordinater för varje ansikte.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">02 —</div>
+      <h3>Encoding</h3>
+      <p>face_recognition omvandlar varje ansikte till en 128-dimensionell vektor som unikt beskriver personens ansikte.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">03 —</div>
+      <h3>Matchning</h3>
+      <p>Den nya encodingen jämförs mot alla kända med euklidiskt avstånd. Under 0.55 = samma person, annars ny buffras i 3 frames.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">04 —</div>
+      <h3>Lagring</h3>
+      <p>Var 2:a sekund per person klipps ansiktet ut och sparas som JPEG i captured_faces/person_N/ lokalt på disken.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Install -->
+<section id="install">
+  <div class="section-label">// 03 — Installation</div>
+  <h2 class="section-title">Kom igång<br>på 3 minuter</h2>
+  <p class="section-desc">Kräver Python 3.8–3.11 och en webbkamera. Windows-användare behöver Visual Studio Build Tools för dlib.</p>
+
+  <div class="install-grid">
+    <div class="code-block">
+      <div class="code-block-title">Mac / Linux</div>
+      <code>
+        <span class="comment"># Klona repot</span><br>
+        <span class="cmd">git clone github.com/user/facetracker</span><br>
+        <span class="cmd">cd facetracker</span><br><br>
+        <span class="comment"># Virtuell miljö</span><br>
+        <span class="cmd">python -m venv venv</span><br>
+        <span class="cmd">source venv/bin/activate</span><br><br>
+        <span class="comment"># Installera & kör</span><br>
+        <span class="cmd">pip install -r requirements.txt</span><br>
+        <span class="cmd">python src/main.py</span>
+      </code>
+    </div>
+    <div class="code-block">
+      <div class="code-block-title">Windows</div>
+      <code>
+        <span class="comment"># Klona repot</span><br>
+        <span class="cmd">git clone github.com/user/facetracker</span><br>
+        <span class="cmd">cd facetracker</span><br><br>
+        <span class="comment"># Virtuell miljö</span><br>
+        <span class="cmd">python -m venv venv</span><br>
+        <span class="cmd">venv\Scripts\activate</span><br><br>
+        <span class="comment"># Installera & kör</span><br>
+        <span class="cmd">pip install -r requirements.txt</span><br>
+        <span class="cmd">python src/main.py</span>
+      </code>
+    </div>
+  </div>
+
+  <!-- Privacy note -->
+  <div class="privacy">
+    <div class="privacy-icon">🔒</div>
+    <div>
+      <h3>Integritet & etik</h3>
+      <p>
+        Det här programmet är enbart avsett för skolbruk. All insamlad data lagras temporärt
+        och lokalt — inga bilder, encodings eller persondata skickas till någon server.
+        Radera mappen <code style="color:var(--green)">captured_faces/</code> för att ta bort all sparad data.
+        Mappen ignoreras automatiskt av git via <code style="color:var(--green)">.gitignore</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-logo">FaceTracker</div>
+  <div class="footer-note">Skolprojekt — MIT License — All data är temporär och lokal</div>
+</footer>
+
+</body>
+</html>
